@@ -1,67 +1,32 @@
 #include <bits/stdc++.h>
 
+
 using namespace std;
 
 constexpr size_t N = 36, M = 84;
-// constexpr size_t N = 14, M = 5;
-constexpr size_t T = 1'000'000;
+
+constexpr size_t T = 50;
 constexpr std::array<pair<int, int>, 4> deltas{{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}};
 
-// char field[N][M + 1] = {
-//     "#####",
-//     "#.  #",
-//     "#.# #",
-//     "#.# #",
-//     "#.# #",
-//     "#.# #",
-//     "#.# #",
-//     "#.# #",
-//     "#...#",
-//     "#####",
-//     "#   #",
-//     "#   #",
-//     "#   #",
-//     "#####",
-// };
+char field[N][M + 1];
 
-char field[N][M + 1] = {
-    "####################################################################################",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                       .........                                  #",
-    "#..............#            #           .........                                  #",
-    "#..............#            #           .........                                  #",
-    "#..............#            #           .........                                  #",
-    "#..............#            #                                                      #",
-    "#..............#            #                                                      #",
-    "#..............#            #                                                      #",
-    "#..............#            #                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............#                                                      #",
-    "#..............#............################                     #                 #",
-    "#...........................#....................................#                 #",
-    "#...........................#....................................#                 #",
-    "#...........................#....................................#                 #",
-    "##################################################################                 #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "#                                                                                  #",
-    "####################################################################################",
-};
+void initialize_field() {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < M; ++j) {
+            if (i == 0 || i == N - 1 || j == 0 || j == M - 1) {
+                field[i][j] = '#';
+            } else {
+                field[i][j] = ' ';
+            }
+        }
+    }
+
+    for (int i = 6; i <= 9; ++i) {
+        for (int j = 37; j <= 45; ++j) {
+            field[i][j] = '.';
+        }
+    }
+}
 
 struct Fixed {
     constexpr Fixed(int v): v(v << 16) {}
@@ -81,8 +46,6 @@ struct Fixed {
     bool operator==(const Fixed&) const = default;
 };
 
-static constexpr Fixed inf = Fixed::from_raw(std::numeric_limits<int32_t>::max());
-static constexpr Fixed eps = Fixed::from_raw(deltas.size());
 
 Fixed operator+(Fixed a, Fixed b) {
     return Fixed::from_raw(a.v + b.v);
@@ -303,7 +266,44 @@ bool propagate_move(int x, int y, bool is_first) {
 
 int dirs[N][M]{};
 
+void recalculate_kinetic_energy(size_t start_x, size_t end_x) {
+    for (size_t x = start_x; x < end_x; ++x) {
+        for (size_t y = 0; y < M; ++y) {
+            if (field[x][y] == '#')
+                continue;
+
+            for (auto [dx, dy] : deltas) {
+                auto old_v = velocity.get(x, y, dx, dy);
+                auto new_v = velocity_flow.get(x, y, dx, dy);
+
+                if (old_v > 0) {
+                    assert(new_v <= old_v);
+
+                    velocity.get(x, y, dx, dy) = new_v;
+
+                    auto force = (old_v - new_v) * rho[(int)field[x][y]];
+                    if (field[x][y] == '.')
+                        force *= 0.8;
+
+                    if (field[x + dx][y + dy] == '#') {
+                        p[x][y] += force / dirs[x][y];
+                    } else {
+                        p[x + dx][y + dy] += force / dirs[x + dx][y + dy];
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 int main() {
+    size_t thread_count;
+    std::cout << "Задайте количество потоков: ";
+    std::cin >> thread_count;
+
+    initialize_field();
+    size_t start_time = clock();
     rho[' '] = 0.01;
     rho['.'] = 1000;
     Fixed g = 0.1;
@@ -320,38 +320,46 @@ int main() {
 
     for (size_t i = 0; i < T; ++i) {
         
-        Fixed total_delta_p = 0;
         // Apply external forces
+        #pragma omp parallel for
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
                 if (field[x][y] == '#')
                     continue;
-                if (field[x + 1][y] != '#')
+                if (field[x + 1][y] != '#') {
                     velocity.add(x, y, 1, 0, g);
+                }
             }
         }
 
         // Apply forces from p
         memcpy(old_p, p, sizeof(p));
+        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(8)
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
-                if (field[x][y] == '#')
+                if (field[x][y] == '#') {
                     continue;
+                }
                 for (auto [dx, dy] : deltas) {
                     int nx = x + dx, ny = y + dy;
                     if (field[nx][ny] != '#' && old_p[nx][ny] < old_p[x][y]) {
                         auto delta_p = old_p[x][y] - old_p[nx][ny];
                         auto force = delta_p;
                         auto &contr = velocity.get(nx, ny, -dx, -dy);
-                        if (contr * rho[(int) field[nx][ny]] >= force) {
-                            contr -= force / rho[(int) field[nx][ny]];
-                            continue;
+                        
+                        #pragma omp critical
+                        {
+                            if (contr * rho[(int)field[nx][ny]] >= force) {
+                                contr -= force / rho[(int)field[nx][ny]];
+                            } else {
+                                force -= contr * rho[(int)field[nx][ny]];
+                                contr = 0;
+                                velocity.add(x, y, dx, dy, force / rho[(int)field[x][y]]);
+                            }
                         }
-                        force -= contr * rho[(int) field[nx][ny]];
-                        contr = 0;
-                        velocity.add(x, y, dx, dy, force / rho[(int) field[x][y]]);
+
+                        #pragma omp atomic
                         p[x][y] -= force / dirs[x][y];
-                        total_delta_p -= force / dirs[x][y];
                     }
                 }
             }
@@ -376,29 +384,18 @@ int main() {
         } while (prop);
 
         // Recalculate p with kinetic energy
-        for (size_t x = 0; x < N; ++x) {
-            for (size_t y = 0; y < M; ++y) {
-                if (field[x][y] == '#')
-                    continue;
-                for (auto [dx, dy] : deltas) {
-                    auto old_v = velocity.get(x, y, dx, dy);
-                    auto new_v = velocity_flow.get(x, y, dx, dy);
-                    if (old_v > 0) {
-                        assert(new_v <= old_v);
-                        velocity.get(x, y, dx, dy) = new_v;
-                        auto force = (old_v - new_v) * rho[(int) field[x][y]];
-                        if (field[x][y] == '.')
-                            force *= 0.8;
-                        if (field[x + dx][y + dy] == '#') {
-                            p[x][y] += force / dirs[x][y];
-                            total_delta_p += force / dirs[x][y];
-                        } else {
-                            p[x + dx][y + dy] += force / dirs[x + dx][y + dy];
-                            total_delta_p += force / dirs[x + dx][y + dy];
-                        }
-                    }
-                }
-            }
+        std::vector<std::thread> threads;
+        size_t block_size = (N + thread_count - 1) / thread_count;
+
+        for (size_t t = 0; t < thread_count; ++t) {
+            size_t start_x = t * block_size;
+            size_t end_x = std::min(start_x + block_size, N);
+
+            threads.emplace_back(recalculate_kinetic_energy, start_x, end_x);
+        }
+
+        for (auto& thread : threads) {
+            thread.join();
         }
 
         UT += 2;
@@ -423,4 +420,6 @@ int main() {
             }
         }
     }
+    size_t end_time = clock();
+    cout << "Time: " << end_time - start_time << "ms\n";
 }
