@@ -3,7 +3,7 @@
 
 using namespace std;
 
-constexpr size_t N = 100, M = 100;
+constexpr size_t N = 36, M = 84;
 
 constexpr size_t T = 50;
 constexpr std::array<pair<int, int>, 4> deltas{{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}};
@@ -298,6 +298,10 @@ void recalculate_kinetic_energy(size_t start_x, size_t end_x) {
 
 
 int main() {
+    size_t thread_count;
+    std::cout << "Задайте количество потоков: ";
+    std::cin >> thread_count;
+
     initialize_field();
     size_t start_time = clock();
     rho[' '] = 0.01;
@@ -328,7 +332,7 @@ int main() {
 
         // Apply forces from p
         memcpy(old_p, p, sizeof(p));
-        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(8)
+        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(thread_count)
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
                 if (field[x][y] == '#') {
@@ -378,7 +382,6 @@ int main() {
         } while (prop);
 
         // Recalculate p with kinetic energy
-        size_t thread_count = 2;
         std::vector<std::thread> threads;
         size_t block_size = (N + thread_count - 1) / thread_count;
 
