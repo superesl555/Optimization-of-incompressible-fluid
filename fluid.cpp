@@ -321,18 +321,20 @@ int main() {
     for (size_t i = 0; i < T; ++i) {
         
         // Apply external forces
+        #pragma omp parallel for
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
                 if (field[x][y] == '#')
                     continue;
-                if (field[x + 1][y] != '#')
+                if (field[x + 1][y] != '#') {
                     velocity.add(x, y, 1, 0, g);
+                }
             }
         }
 
         // Apply forces from p
         memcpy(old_p, p, sizeof(p));
-        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(thread_count)
+        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(8)
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
                 if (field[x][y] == '#') {
