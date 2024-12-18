@@ -334,7 +334,7 @@ int main() {
 
         // Apply forces from p
         memcpy(old_p, p, sizeof(p));
-        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(8)
+        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(thread_count)
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
                 if (field[x][y] == '#') {
