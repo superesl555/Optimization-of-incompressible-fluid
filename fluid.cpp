@@ -328,23 +328,31 @@ int main() {
 
         // Apply forces from p
         memcpy(old_p, p, sizeof(p));
+        #pragma omp parallel for collapse(2) schedule(dynamic) num_threads(8)
         for (size_t x = 0; x < N; ++x) {
             for (size_t y = 0; y < M; ++y) {
-                if (field[x][y] == '#')
+                if (field[x][y] == '#') {
                     continue;
+                }
                 for (auto [dx, dy] : deltas) {
                     int nx = x + dx, ny = y + dy;
                     if (field[nx][ny] != '#' && old_p[nx][ny] < old_p[x][y]) {
                         auto delta_p = old_p[x][y] - old_p[nx][ny];
                         auto force = delta_p;
                         auto &contr = velocity.get(nx, ny, -dx, -dy);
-                        if (contr * rho[(int) field[nx][ny]] >= force) {
-                            contr -= force / rho[(int) field[nx][ny]];
-                            continue;
+                        
+                        #pragma omp critical
+                        {
+                            if (contr * rho[(int)field[nx][ny]] >= force) {
+                                contr -= force / rho[(int)field[nx][ny]];
+                            } else {
+                                force -= contr * rho[(int)field[nx][ny]];
+                                contr = 0;
+                                velocity.add(x, y, dx, dy, force / rho[(int)field[x][y]]);
+                            }
                         }
-                        force -= contr * rho[(int) field[nx][ny]];
-                        contr = 0;
-                        velocity.add(x, y, dx, dy, force / rho[(int) field[x][y]]);
+
+                        #pragma omp atomic
                         p[x][y] -= force / dirs[x][y];
                     }
                 }
@@ -369,8 +377,8 @@ int main() {
             }
         } while (prop);
 
-
-        size_t thread_count = 4;
+        // Recalculate p with kinetic energy
+        size_t thread_count = 2;
         std::vector<std::thread> threads;
         size_t block_size = (N + thread_count - 1) / thread_count;
 
